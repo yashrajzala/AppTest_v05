@@ -5,12 +5,7 @@ description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [lib]
-# The `_lib` suffix may seem redundant but it is necessary
-# to make the lib name unique and wouldn't conflict with the bin name.
-# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "apptest_v05_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
@@ -24,4 +19,5 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
 rumqttc = "0.24"
-
+# ✅ use ONLY rusqlite for SQLite (no sqlx) to avoid libsqlite3-sys conflicts
+rusqlite = { version = "0.37", features = ["bundled"] }
