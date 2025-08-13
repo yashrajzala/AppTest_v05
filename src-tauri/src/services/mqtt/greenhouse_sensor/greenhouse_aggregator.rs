@@ -1,9 +1,9 @@
 //! Greenhouse-level 60s averages.
 //! - Consumes NodeAvg (per-node snapshots).
 //! - Every 60s, averages available fields across freshest nodes.
-//! - Prints with two decimals; emits GhAvg to DB.
+//! - Prints with two decimals; emits GhAvg to DB and UI.
 
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, time::Duration, time::SystemTime};
 use tokio::sync::mpsc;
 use tokio::time::{Instant, interval};
 
@@ -12,8 +12,9 @@ use super::aggregator::NodeAvg;
 const WINDOW: Duration = Duration::from_secs(60);
 const STALE_GRACE: Duration = Duration::from_secs(5); // include node avgs if <= 65s old
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
 pub struct GhAvg {
+    pub ts_ms: i64,           // wall clock ms for UI
     pub greenhouse_id: u16,
     pub air_temp_c: Option<f32>,
     pub leaf_temp_c: Option<f32>,
@@ -31,6 +32,10 @@ pub struct GhAvg {
     pub es_kpa: Option<f32>,
     pub vpd_kpa: Option<f32>,
     pub nodes: usize,
+}
+
+#[inline] fn now_ms() -> i64 {
+    SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64
 }
 
 #[inline] fn mean(sum: f64, cnt: u32) -> Option<f32> {
@@ -56,6 +61,7 @@ impl GHState { fn new() -> Self { Self { nodes: HashMap::new() } } }
 pub async fn run_greenhouse_avg(
     mut rx_nodeavg: mpsc::Receiver<NodeAvg>,
     tx_ghavg_db: mpsc::Sender<GhAvg>,
+    tx_ghavg_ui: mpsc::Sender<GhAvg>,
 ) {
     let mut gh: HashMap<u16, GHState> = HashMap::new();
     let mut tick = interval(WINDOW);
@@ -123,7 +129,9 @@ pub async fn run_greenhouse_avg(
                         fmt_opt2(vpd_kpa, "kPa"),
                     );
 
+                    let ts_ms = now_ms();
                     let ga = GhAvg {
+                        ts_ms,
                         greenhouse_id: *gh_id,
                         air_temp_c, leaf_temp_c, bag_temp_c, air_rh_pct,
                         bag_rh1_pct, bag_rh2_pct, bag_rh3_pct, bag_rh4_pct, bag_rh_avg_pct,
@@ -131,6 +139,7 @@ pub async fn run_greenhouse_avg(
                         nodes: n_nodes,
                     };
                     let _ = tx_ghavg_db.try_send(ga);
+                    let _ = tx_ghavg_ui.try_send(ga);
                 }
             }
         }
