@@ -7,7 +7,7 @@ mod services {
 
 use services::mqtt::greenhouse_sensor::{
     subscriber::run_debug_subscriber,
-    aggregator::{run_rolling_avg, NodeAvg},
+    aggregator::{run_rolling_avg, NodeAvg, NodeAvgUi},
     greenhouse_aggregator::{run_greenhouse_avg, GhAvg},
 };
 use services::storage::sqlite::run_storage;
@@ -26,6 +26,7 @@ async fn main() {
             // Stage 2 outputs: per-node 60s averages
             let (tx_nodeavg_for_gh, rx_nodeavg_for_gh) = mpsc::channel::<NodeAvg>(128);
             let (tx_nodeavg_for_db, rx_nodeavg_for_db) = mpsc::channel::<NodeAvg>(128);
+            let (tx_nodeavg_for_ui, mut rx_nodeavg_for_ui) = mpsc::channel::<NodeAvgUi>(128);
 
             // Stage 3 outputs: greenhouse 60s averages
             let (tx_ghavg_for_db, rx_ghavg_for_db) = mpsc::channel::<GhAvg>(64);
@@ -43,11 +44,12 @@ async fn main() {
                 run_greenhouse_avg(rx_nodeavg_for_gh, tx_ghavg_for_db_clone, tx_ghavg_for_ui_clone).await;
             });
 
-            // Node rolling averages (Decoded -> NodeAvg for GH & DB)
+            // Node rolling averages (Decoded -> NodeAvg for GH & DB & UI)
             let tx_nodeavg_for_gh_clone = tx_nodeavg_for_gh.clone();
             let tx_nodeavg_for_db_clone = tx_nodeavg_for_db.clone();
+            let tx_nodeavg_for_ui_clone = tx_nodeavg_for_ui.clone();
             tauri::async_runtime::spawn(async move {
-                run_rolling_avg(rx_decoded, tx_nodeavg_for_db_clone, tx_nodeavg_for_gh_clone).await;
+                run_rolling_avg(rx_decoded, tx_nodeavg_for_db_clone, tx_nodeavg_for_gh_clone, tx_nodeavg_for_ui_clone).await;
             });
 
             // MQTT subscriber (hot path)
@@ -60,8 +62,16 @@ async fn main() {
             tauri::async_runtime::spawn(async move {
                 use tauri::Emitter;
                 while let Some(ga) = rx_ghavg_for_ui.recv().await {
-                    // GhAvg already derives Serialize + Clone
                     let _ = app_handle.emit("gh_avg", ga);
+                }
+            });
+
+            // UI emitter: forward NodeAvg to frontend ("node_avg" events)
+            let app_handle2 = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                use tauri::Emitter;
+                while let Some(na) = rx_nodeavg_for_ui.recv().await {
+                    let _ = app_handle2.emit("node_avg", na);
                 }
             });
 

@@ -5,7 +5,7 @@
 //!     * Emit NodeAvg to BOTH: DB writer and greenhouse aggregator.
 //! - RAM-only buffers, bounded, no panics.
 
-use std::{collections::{HashMap, VecDeque}, time::Duration};
+use std::{collections::{HashMap, VecDeque}, time::{Duration, SystemTime}};
 use tokio::sync::mpsc;
 use tokio::time::{Instant, interval};
 
@@ -19,6 +19,30 @@ const MAX_SAMPLES_PER_NODE: usize = 64; // ~6 samples/min, headroom
 struct TimedSample {
     at: Instant,
     data: Decoded,
+}
+
+#[inline] fn now_ms() -> i64 { SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64 }
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct NodeAvgUi {
+    pub ts_ms: i64,
+    pub greenhouse_id: u16,
+    pub node_id: u16,
+    pub air_temp_c: Option<f32>,
+    pub leaf_temp_c: Option<f32>,
+    pub bag_temp_c: Option<f32>,
+    pub air_rh_pct: Option<f32>,
+    pub bag_rh1_pct: Option<f32>,
+    pub bag_rh2_pct: Option<f32>,
+    pub bag_rh3_pct: Option<f32>,
+    pub bag_rh4_pct: Option<f32>,
+    pub bag_rh_avg_pct: Option<f32>,
+    pub par_value: Option<f32>,
+    pub weight_g: Option<f32>,
+    pub ea_air_kpa: Option<f32>,
+    pub ea_leaf_kpa: Option<f32>,
+    pub es_kpa: Option<f32>,
+    pub vpd_kpa: Option<f32>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -96,6 +120,7 @@ pub async fn run_rolling_avg(
     mut rx_decoded: mpsc::Receiver<Decoded>,
     tx_nodeavg_db: mpsc::Sender<NodeAvg>,
     tx_nodeavg_gh: mpsc::Sender<NodeAvg>,
+    tx_nodeavg_ui: mpsc::Sender<NodeAvgUi>,
 ) {
     let mut nodes: HashMap<(u16, u16), NodeWindow> = HashMap::new();
     let mut tick = interval(WINDOW);
@@ -195,6 +220,26 @@ pub async fn run_rolling_avg(
 
                             let _ = tx_nodeavg_db.try_send(na);
                             let _ = tx_nodeavg_gh.try_send(na);
+                            let _ = tx_nodeavg_ui.try_send(NodeAvgUi {
+                                ts_ms: now_ms(),
+                                greenhouse_id: win.ids.0,
+                                node_id: win.ids.1,
+                                air_temp_c: na.air_temp_c,
+                                leaf_temp_c: na.leaf_temp_c,
+                                bag_temp_c: na.bag_temp_c,
+                                air_rh_pct: na.air_rh_pct,
+                                bag_rh1_pct: na.bag_rh1_pct,
+                                bag_rh2_pct: na.bag_rh2_pct,
+                                bag_rh3_pct: na.bag_rh3_pct,
+                                bag_rh4_pct: na.bag_rh4_pct,
+                                bag_rh_avg_pct: na.bag_rh_avg_pct,
+                                par_value: na.par_value,
+                                weight_g: na.weight_g,
+                                ea_air_kpa: na.ea_air_kpa,
+                                ea_leaf_kpa: na.ea_leaf_kpa,
+                                es_kpa: na.es_kpa,
+                                vpd_kpa: na.vpd_kpa,
+                            });
                         }
                         NodeKind::Outdoor => {
                             let (mut air_t_s,mut air_t_c)=(0.0,0); let (mut air_rh_s,mut air_rh_c)=(0.0,0);
@@ -234,6 +279,26 @@ pub async fn run_rolling_avg(
 
                             let _ = tx_nodeavg_db.try_send(na);
                             let _ = tx_nodeavg_gh.try_send(na);
+                            let _ = tx_nodeavg_ui.try_send(NodeAvgUi {
+                                ts_ms: now_ms(),
+                                greenhouse_id: win.ids.0,
+                                node_id: win.ids.1,
+                                air_temp_c: na.air_temp_c,
+                                leaf_temp_c: na.leaf_temp_c,
+                                bag_temp_c: na.bag_temp_c,
+                                air_rh_pct: na.air_rh_pct,
+                                bag_rh1_pct: na.bag_rh1_pct,
+                                bag_rh2_pct: na.bag_rh2_pct,
+                                bag_rh3_pct: na.bag_rh3_pct,
+                                bag_rh4_pct: na.bag_rh4_pct,
+                                bag_rh_avg_pct: na.bag_rh_avg_pct,
+                                par_value: na.par_value,
+                                weight_g: na.weight_g,
+                                ea_air_kpa: na.ea_air_kpa,
+                                ea_leaf_kpa: na.ea_leaf_kpa,
+                                es_kpa: na.es_kpa,
+                                vpd_kpa: na.vpd_kpa,
+                            });
                         }
                     }
                 }
